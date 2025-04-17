@@ -20,6 +20,12 @@ let
     ln -sfn ${team-city}/conf/$i ${cfg.dataPath}/conf/`basename $i`
   done
 
+  # the server process wants to create some stuff in lib (jdbc drivers)
+  echo "symlinking lib/ contents"
+  for i in $(ls ${team-city}/lib); do
+    ln -sfn ${team-city}/lib/$i ${cfg.dataPath}/lib/`basename $i`
+  done
+
   # stage entire webapp in state dir. Team City wants WEB-INF to be writable and enabling symlinks for Tomcat seems a bit brute
   echo "staging webapps/ROOT/.."
   ${pkgs.rsync}/bin/rsync -au ${team-city}/webapps/ROOT ${cfg.dataPath}/webapps/
@@ -87,12 +93,11 @@ in
     systemd.tmpfiles.rules = [
       "d '${cfg.dataPath}/bin' 0750 ${cfg.user} ${cfg.group} - -"
       "d '${cfg.dataPath}/conf' 0750 ${cfg.user} ${cfg.group} - -"
+      "d '${cfg.dataPath}/lib' 0750 ${cfg.user} ${cfg.group} - -"
       "d '${cfg.dataPath}/logs' 0750 ${cfg.user} ${cfg.group} - -"
       "d '${cfg.dataPath}/temp' 0750 ${cfg.user} ${cfg.group} - -"
       "d '${cfg.dataPath}/webapps' 0750 ${cfg.user} ${cfg.group} - -"
       "d '${cfg.dataPath}/work' 0750 ${cfg.user} ${cfg.group} - -"
-
-      "L+ ${cfg.dataPath}/lib - - - - ${team-city}/lib"
     ];
 
     systemd.services.team-city = {
