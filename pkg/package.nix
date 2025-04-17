@@ -28,6 +28,7 @@ stdenv.mkDerivation rec {
     rm $out/buildAgent/bin/mac.launchd.sh
 
     wrapProgram $out/bin/teamcity-server.sh --set JAVA_HOME "${jre}"
+    wrapProgram $out/bin/maintainDB.sh --set JAVA_HOME "${jre}"
 
     runHook postInstall
   '';
