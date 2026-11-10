@@ -11,7 +11,7 @@ stdenv.mkDerivation rec {
   version = "2026.2.2";
 
   src = fetchurl {
-    url = "https://download-cdn.jetbrains.com/teamcity/TeamCity-${version}.tar.gz";
+    url = "https://download.jetbrains.com/teamcity/TeamCity-${version}.tar.gz";
     sha256 = "sha256-Db2OcqN9JQmyyL1ziG3faZsswLn2mId+jScmUTJE6bQ=";
   };
 
