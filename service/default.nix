@@ -8,6 +8,14 @@ let
   cfg = config.services.team-city;
   team-city = cfg.package;
   preStart = pkgs.writeShellScript "team-city-pre-start" ''
+  set -eu
+
+  # drop symlinks into the store left over from a previous package version, they get recreated below.
+  # real files (e.g. jdbc drivers the server put in lib/) are left alone.
+  echo "removing old store symlinks"
+  ${pkgs.findutils}/bin/find ${cfg.statePath}/bin ${cfg.statePath}/conf ${cfg.statePath}/lib \
+    -maxdepth 1 -type l -lname '/nix/store/*' -delete
+
   # the server process write files relative to its bin so it needs to run from the state dir
   echo "symlinking bin/ contents"
   for i in $(ls ${team-city}/bin); do
@@ -27,10 +35,21 @@ let
   done
 
   # stage entire webapp in state dir. Team City wants WEB-INF to be writable and enabling symlinks for Tomcat seems a bit brute
-  echo "staging webapps/ROOT/.."
-  ${pkgs.rsync}/bin/rsync -au ${team-city}/webapps/ROOT ${cfg.statePath}/webapps/
-  chown -R ${cfg.user}:${cfg.group} ${cfg.statePath}/webapps/ROOT
-  chmod -R 750 ${cfg.statePath}/webapps/ROOT
+  # restaged from scratch whenever the package changes, so files from an older version never linger
+  # (store files all have mtime 1, so an incremental copy can't reliably tell versions apart).
+  # Tomcat's work/ dir is cleared at the same time, as JetBrains recommends on upgrade.
+  marker=${cfg.statePath}/webapps/.staged-from
+  if [ "$(cat "$marker" 2>/dev/null || true)" != "${team-city}" ]; then
+    echo "staging webapps/ROOT/ from ${team-city}"
+    rm -rf ${cfg.statePath}/webapps/ROOT
+    ${pkgs.findutils}/bin/find ${cfg.statePath}/work -mindepth 1 -delete
+    cp -r ${team-city}/webapps/ROOT ${cfg.statePath}/webapps/
+    chown -R ${cfg.user}:${cfg.group} ${cfg.statePath}/webapps/ROOT
+    chmod -R u+rwX,g+rX,g-w,o-rwx ${cfg.statePath}/webapps/ROOT
+    echo "${team-city}" > "$marker"
+  else
+    echo "webapps/ROOT/ already staged from ${team-city}"
+  fi
   '';
 in
 {

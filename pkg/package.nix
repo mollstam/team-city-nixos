@@ -1,18 +1,18 @@
 {
   stdenv,
   fetchurl,
-  jre,
+  jdk21_headless,
   lib,
   makeWrapper,
 }:
 
 stdenv.mkDerivation rec {
   pname = "team-city";
-  version = "2025.03";
+  version = "2026.2.2";
 
   src = fetchurl {
     url = "https://download-cdn.jetbrains.com/teamcity/TeamCity-${version}.tar.gz";
-    sha256 = "sha256-0nQPrdVWuF9dXtPK8MWjnH+DCgBdRYQTFMc9xXEgxvc=";
+    sha256 = "sha256-Db2OcqN9JQmyyL1ziG3faZsswLn2mId+jScmUTJE6bQ=";
   };
 
   nativeBuildInputs = [ makeWrapper ];
@@ -23,15 +23,20 @@ stdenv.mkDerivation rec {
     mv * "$out"
 
     # remove some windows/mac scripts for purity
-    rm $out/bin/*.bat $out/bin/*.ps1 $out/bin/*.cmd $out/bin/*.exe
-    rm $out/buildAgent/bin/*.bat $out/buildAgent/bin/*.exe $out/buildAgent/bin/*.plist*
-    rm $out/buildAgent/bin/mac.launchd.sh
+    # -f so a layout change in a new release doesn't break the build
+    rm -f $out/bin/*.bat $out/bin/*.ps1 $out/bin/*.cmd $out/bin/*.exe
+    rm -f $out/buildAgent/bin/*.bat $out/buildAgent/bin/*.exe $out/buildAgent/bin/*.plist*
+    rm -f $out/buildAgent/bin/mac.launchd.sh
 
-    wrapProgram $out/bin/teamcity-server.sh --set JAVA_HOME "${jre}"
-    wrapProgram $out/bin/maintainDB.sh --set JAVA_HOME "${jre}"
+    wrapProgram $out/bin/teamcity-server.sh --set JAVA_HOME "${jdk21_headless}"
+    wrapProgram $out/bin/maintainDB.sh --set JAVA_HOME "${jdk21_headless}"
 
     runHook postInstall
   '';
+
+  # TeamCity 2026.1+ only runs on Java 21. Exposed so consumers (e.g. a custom
+  # truststore) can use the same JDK as the server.
+  passthru.jre = jdk21_headless;
 
   meta = with lib; {
     description = "Powerful Continuous Integration and Continuous Delivery out of the box";
