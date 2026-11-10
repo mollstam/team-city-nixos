@@ -4,8 +4,49 @@
   jdk21_headless,
   lib,
   makeWrapper,
+  runCommand,
 }:
 
+let
+  # Java 21 (TeamCity 2026.1+ requires it) with the roots distrusted after the
+  # eMudhra CA compromise (CVE-2026-91403, CVE-2026-114820) removed from cacerts.
+  # The intermediates involved are issued by AAA Certificate Services, so they
+  # lose trust along with it. Drop this once nixpkgs ships a JDK with both fixes.
+  #
+  # The JDK is copied rather than symlinked because the JVM resolves java.home
+  # (and therefore lib/security/cacerts) from the real path of its binaries.
+  distrusted = [
+    "AAA Certificate Services"
+    "emSign ECC Root CA - G3"
+    "emSign Root CA - G1"
+    "emSign Root CA - G2"
+  ];
+  ownerRegex = "^Owner: .*CN=(${lib.concatStringsSep "|" distrusted})(,|$)";
+  jre = runCommand "${jdk21_headless.name}-distrusted" { } ''
+    mkdir -p $out/lib
+    cp -a ${jdk21_headless}/lib/openjdk $out/lib/openjdk
+    ln -s lib/openjdk/bin $out/bin
+
+    ks=$out/lib/openjdk/lib/security/cacerts
+    chmod u+w $(dirname $ks) $ks
+    keytool=${jdk21_headless}/bin/keytool
+
+    $keytool -list -v -keystore $ks -storepass changeit |
+      awk -v re='${ownerRegex}' '
+        /^Alias name: / { alias = substr($0, 13) }
+        $0 ~ re { print alias }
+      ' |
+      while IFS= read -r alias; do
+        echo "removing '$alias' from cacerts"
+        $keytool -delete -alias "$alias" -keystore $ks -storepass changeit
+      done
+
+    if $keytool -list -v -keystore $ks -storepass changeit | grep -E '${ownerRegex}'; then
+      echo "distrusted roots still present in cacerts" >&2
+      exit 1
+    fi
+  '';
+in
 stdenv.mkDerivation rec {
   pname = "team-city";
   version = "2026.2.2";
@@ -28,15 +69,14 @@ stdenv.mkDerivation rec {
     rm -f $out/buildAgent/bin/*.bat $out/buildAgent/bin/*.exe $out/buildAgent/bin/*.plist*
     rm -f $out/buildAgent/bin/mac.launchd.sh
 
-    wrapProgram $out/bin/teamcity-server.sh --set JAVA_HOME "${jdk21_headless}"
-    wrapProgram $out/bin/maintainDB.sh --set JAVA_HOME "${jdk21_headless}"
+    wrapProgram $out/bin/teamcity-server.sh --set JAVA_HOME "${jre}"
+    wrapProgram $out/bin/maintainDB.sh --set JAVA_HOME "${jre}"
 
     runHook postInstall
   '';
 
-  # TeamCity 2026.1+ only runs on Java 21. Exposed so consumers (e.g. a custom
-  # truststore) can use the same JDK as the server.
-  passthru.jre = jdk21_headless;
+  # Exposed so consumers (e.g. a custom truststore) can use the same JDK as the server.
+  passthru.jre = jre;
 
   meta = with lib; {
     description = "Powerful Continuous Integration and Continuous Delivery out of the box";
