@@ -4,6 +4,7 @@
   jdk21_headless,
   lib,
   makeWrapper,
+  patchelf,
   runCommand,
 }:
 
@@ -22,10 +23,32 @@ let
     "emSign Root CA - G2"
   ];
   ownerRegex = "^Owner: .*CN=(${lib.concatStringsSep "|" distrusted})(,|$)";
-  jre = runCommand "${jdk21_headless.name}-distrusted" { } ''
+  jre = runCommand "${jdk21_headless.name}-distrusted" { nativeBuildInputs = [ patchelf ]; } ''
     mkdir -p $out/lib
     cp -a ${jdk21_headless}/lib/openjdk $out/lib/openjdk
+    chmod -R u+w $out/lib/openjdk
     ln -s lib/openjdk/bin $out/bin
+
+    # nixpkgs bakes the original JDK's lib dirs into every RPATH. Left alone, the copy
+    # loads a second libjava.so from the original and the JVM fails at runtime with
+    # "platform encoding not initialized", so point them at the copy instead.
+    find $out/lib/openjdk -type f | while IFS= read -r f; do
+      rpath=$(patchelf --print-rpath "$f" 2>/dev/null) || continue
+      case "$rpath" in
+        *${jdk21_headless}*)
+          patchelf --set-rpath "$(echo "$rpath" | sed "s|${jdk21_headless}|$out|g")" "$f"
+          ;;
+      esac
+    done
+    leftover=$(find $out/lib/openjdk -type f | while IFS= read -r f; do
+      rpath=$(patchelf --print-rpath "$f" 2>/dev/null) || continue
+      case "$rpath" in *${jdk21_headless}*) echo "$f: $rpath" ;; esac
+    done)
+    if [ -n "$leftover" ]; then
+      echo "RPATHs still pointing into the original JDK:" >&2
+      echo "$leftover" >&2
+      exit 1
+    fi
 
     ks=$out/lib/openjdk/lib/security/cacerts
     chmod u+w $(dirname $ks) $ks
